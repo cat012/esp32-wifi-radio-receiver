@@ -10,7 +10,6 @@
 #include <WebServer.h>
 #include <EEPROM.h>
 #include <Audio.h>
-#include <ESP32Ping.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
@@ -29,7 +28,6 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 String current_station = "";
 uint8_t curstation=0;
 uint8_t audiovol=0;
-bool sinternet=false;
 
 /* user settigs */
 const char *esp_softap_ssid = "esp32fox";
@@ -37,7 +35,7 @@ const char *esp_softap_pass = "11223344Lap";
 
 #define WIFI_CONN_TIME_SEC  8
 
-#define WIFI_ADDR_PASS_SIZE   32
+#define WIFI_SSID_PASS_SIZE   32
 #define MAX_STREAM_ADDR_SIZE  64
 
 #define STATIONS_LIST_SIZE  16
@@ -49,10 +47,10 @@ const char *esp_softap_pass = "11223344Lap";
 #define CURR_STATION_EE_ADDR  0
 #define AUDIO_VOLUME_EE_ADDR  1
 #define NEW_SSID_EE_ADDR      2
-#define NEW_PASS_EE_ADDR      (NEW_SSID_EE_ADDR + WIFI_ADDR_PASS_SIZE)
-#define STREAM_0_EE_ADDR      (NEW_PASS_EE_ADDR + WIFI_ADDR_PASS_SIZE) 
+#define NEW_PASS_EE_ADDR      (NEW_SSID_EE_ADDR + WIFI_SSID_PASS_SIZE)
+#define STREAM_0_EE_ADDR      (NEW_PASS_EE_ADDR + WIFI_SSID_PASS_SIZE) 
 
-#define EEPROM_SIZE  (WIFI_ADDR_PASS_SIZE + WIFI_ADDR_PASS_SIZE + STREAMS_EE_SIZE + SETTIGS_EE_SIZE)
+#define EEPROM_SIZE  (WIFI_SSID_PASS_SIZE + WIFI_SSID_PASS_SIZE + STREAMS_EE_SIZE + SETTIGS_EE_SIZE)
 
 #define MAX_AUDIO_VOL  21
 
@@ -63,7 +61,7 @@ void handle_root(void)
     String page="";
     page +="<body bgcolor=\"GhostWhite\">";
     page +="<p><a href=\"/\">WiFi Radio Receiver alpha</a></p>";
-    
+
     page +="Station: ";
     page +=curstation;
     page +="<form action=\"/changestation\" method=\"POST\">";
@@ -88,10 +86,8 @@ void handle_root(void)
     page +="<input type=\"text\" name=\"newssid\" placeholder=\"New SSID\"></br>"; 
     page +="<input type=\"text\" name=\"newpass\" placeholder=\"New Password\"></br>";
     page +="<input type=\"submit\" value=\"Save\"></form>";
-    if(sinternet==false) page +="<p><font color=\"maroon\">No internet connection</font></p>";
-    else page +="<p><font color=\"teal\">Connected to internet</font></p>";
     page +="</body>";
-    
+
     server.send(200, "text/html", page);
     }
 
@@ -105,14 +101,14 @@ void handle_404(void)
 
 //-----------------------------------------------------------------------------
 void server_send_invalid_request(void)
-    { 
+    {
     server.send(400, "text/html", "<p>400: Invalid Request</p><p><a href=\"/\">Home</a></p>");
     }
 
 
 //--------------------------------------------------------------------------------------------
 void handle_changestation(void)
-    {                    
+    {
     if(!server.hasArg("nextstation") || server.arg("nextstation")==NULL) { server_send_invalid_request(); return; }
 
     String str1=server.arg("nextstation");
@@ -136,7 +132,7 @@ void handle_changestation(void)
 
 //--------------------------------------------------------------------------------------------
 void handle_replacestation(void)
-    {                    
+    {
     if(!server.hasArg("newstation") || server.arg("newstation")==NULL) { server_send_invalid_request(); return; }
 
     String str = server.arg("newstation");
@@ -151,65 +147,14 @@ void handle_replacestation(void)
 
     audio.stopSong();
     audio.connecttohost((char*)current_station.c_str());
-    
+
     handle_root();
-    }
-
-
-//--------------------------------------------------------------------------------------------
-void handle_changevolume(void)
-    {                    
-    if(!server.hasArg("newvolume") || server.arg("newvolume")==NULL) { server_send_invalid_request(); return; }
-
-    String str1=server.arg("newvolume");
-    char strbuff[3]="";
-    str1.toCharArray(strbuff,3);
-    uint8_t result=atoi(strbuff);
-
-    if(result <= MAX_AUDIO_VOL) { audiovol = result; }
-    else { server_send_invalid_request(); return; }
-
-    if(EEPROM.readUChar(AUDIO_VOLUME_EE_ADDR) != audiovol)  { EEPROM.writeUChar(AUDIO_VOLUME_EE_ADDR, audiovol); EEPROM.commit(); }
-
-    audio.setVolume(audiovol);
-    
-    handle_root();
-    }
-
-
-//--------------------------------------------------------------------------------------------
-void handle_changeap(void)
-    {                    
-    if(!server.hasArg("newssid") || server.arg("newssid")==NULL || (!server.hasArg("newpass") || server.arg("newpass")==NULL)) { server_send_invalid_request(); return; }
-
-    String str1=server.arg("newssid");
-    String str2=server.arg("newpass");
-
-    char wifi_ssid[WIFI_ADDR_PASS_SIZE] = "";
-    char wifi_pass[WIFI_ADDR_PASS_SIZE] = "";
-
-    str1.toCharArray(wifi_ssid, WIFI_ADDR_PASS_SIZE);
-    str2.toCharArray(wifi_pass, WIFI_ADDR_PASS_SIZE);
-
-    EEPROM.writeString(NEW_SSID_EE_ADDR, wifi_ssid);
-    EEPROM.writeString(NEW_PASS_EE_ADDR, wifi_pass);
-    EEPROM.commit();
-
-    String page="";
-    page +="<p>Saved</p>";
-    server.send(200, "text/html", page);
-
-    audio.stopSong();
-
-    delay(1000);  //xxx
-
-    wifi_audio_init((char*)EEPROM.readString(NEW_SSID_EE_ADDR).c_str(), (char*)EEPROM.readString(NEW_PASS_EE_ADDR).c_str());
     }
 
 
 //--------------------------------------------------------------------------------------------
 void handle_show_stations(void)
-    {                    
+    {
     String page="";
     page +="<body bgcolor=\"GhostWhite\">";
     page +="<p><a href=\"/\">Home</a></p>";
@@ -223,6 +168,27 @@ void handle_show_stations(void)
     page +="<p><a href=\"/\">Home</a></p>";
     page +="</body>";
     server.send(200, "text/html", page);
+    }
+
+
+//--------------------------------------------------------------------------------------------
+void handle_changevolume(void)
+    {
+    if(!server.hasArg("newvolume") || server.arg("newvolume")==NULL) { server_send_invalid_request(); return; }
+
+    String str1=server.arg("newvolume");
+    char strbuff[3]="";
+    str1.toCharArray(strbuff,3);
+    uint8_t result=atoi(strbuff);
+
+    if(result <= MAX_AUDIO_VOL) { audiovol = result; }
+    else { server_send_invalid_request(); return; }
+
+    if(EEPROM.readUChar(AUDIO_VOLUME_EE_ADDR) != audiovol)  { EEPROM.writeUChar(AUDIO_VOLUME_EE_ADDR, audiovol); EEPROM.commit(); }
+
+    audio.setVolume(audiovol);
+
+    handle_root();
     }
 
 
@@ -248,23 +214,18 @@ static void wifi_audio_init(char *ssid, char *pass)
         display.setCursor(0, 0);
         display.println(WiFi.localIP());
         display.display();
-        delay(1000);
+        delay(1000);  //xxx
 
         if(EEPROM.readUChar(AUDIO_VOLUME_EE_ADDR) > MAX_AUDIO_VOL)  { EEPROM.writeUChar(AUDIO_VOLUME_EE_ADDR, MAX_AUDIO_VOL); EEPROM.commit(); }
-
         audiovol=EEPROM.readUChar(AUDIO_VOLUME_EE_ADDR);
         audio.setVolume(audiovol); // 0...21
 
         if(EEPROM.readUChar(CURR_STATION_EE_ADDR) >= STATIONS_LIST_SIZE)  { EEPROM.writeUChar(CURR_STATION_EE_ADDR, 0); EEPROM.commit(); }
+        curstation=EEPROM.readUChar(CURR_STATION_EE_ADDR);
 
-        if(Ping.ping("www.google.com", 1)==true || Ping.ping("www.ya.ru", 1)==true)
-            {
-            curstation=EEPROM.readUChar(CURR_STATION_EE_ADDR);
-            current_station = EEPROM.readString(STREAM_0_EE_ADDR+(curstation*MAX_STREAM_ADDR_SIZE));
-            audio.connecttohost((char*)current_station.c_str());
-            sinternet=true;
-            }
-        else sinternet=false;
+
+        current_station = EEPROM.readString(STREAM_0_EE_ADDR+(curstation*MAX_STREAM_ADDR_SIZE));
+        audio.connecttohost((char*)current_station.c_str());
         }
     else
         {
@@ -273,7 +234,7 @@ static void wifi_audio_init(char *ssid, char *pass)
         IPAddress myIP = WiFi.softAPIP();
         Serial.print("^^ webradio AP IP: ");
         Serial.println(myIP);
-        
+
         display.clearDisplay();
         display.setCursor(0, 0);
         display.println(esp_softap_ssid);
@@ -283,6 +244,36 @@ static void wifi_audio_init(char *ssid, char *pass)
         display.println(myIP);
         display.display();
         }
+    }
+
+
+//--------------------------------------------------------------------------------------------
+void handle_changeap(void)
+    {
+    if(!server.hasArg("newssid") || server.arg("newssid")==NULL || (!server.hasArg("newpass") || server.arg("newpass")==NULL)) { server_send_invalid_request(); return; }
+
+    String str1=server.arg("newssid");
+    String str2=server.arg("newpass");
+
+    char wifi_ssid[WIFI_SSID_PASS_SIZE] = "";
+    char wifi_pass[WIFI_SSID_PASS_SIZE] = "";
+
+    str1.toCharArray(wifi_ssid, WIFI_SSID_PASS_SIZE);
+    str2.toCharArray(wifi_pass, WIFI_SSID_PASS_SIZE);
+
+    EEPROM.writeString(NEW_SSID_EE_ADDR, wifi_ssid);
+    EEPROM.writeString(NEW_PASS_EE_ADDR, wifi_pass);
+    EEPROM.commit();
+
+    String page="";
+    page +="<p>Saved</p>";
+    server.send(200, "text/html", page);
+
+    audio.stopSong();
+
+    delay(1000);  //xxx
+
+    wifi_audio_init((char*)EEPROM.readString(NEW_SSID_EE_ADDR).c_str(), (char*)EEPROM.readString(NEW_PASS_EE_ADDR).c_str());
     }
 
 
@@ -326,12 +317,12 @@ void loop(void)
 
 
 //--------------------------------------------------------------------------------------------  
-void write_streamTitle(String sTitle)
+void write_stream_title(String stitle)
     {
     display.clearDisplay();
     display.setCursor(0, 0);
-    if(sTitle=="") display.println("*");
-    else display.println(sTitle);
+    if(stitle==String("")) display.println(WiFi.localIP());
+    else display.println(stitle);
     display.display();
     }
 
@@ -349,7 +340,7 @@ void audio_showstreamtitle(const char *info)
     {
     String sinfo=String(info);
     sinfo.replace("|", "\n");
-    write_streamTitle(sinfo);
+    write_stream_title(sinfo);
     }
 
 
