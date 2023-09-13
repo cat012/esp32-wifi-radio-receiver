@@ -1,5 +1,5 @@
 // fox ^^ WiFi Radio Receiver alpha
-// 12 Sep 2023
+// 13 Sep 2023
 
 
 #include <Arduino.h>
@@ -59,34 +59,36 @@ const char *esp_softap_pass = "11223344Lap";
 void handle_root(void)
     {
     String page="";
-    page +="<body bgcolor=\"GhostWhite\">";
-    page +="<p><a href=\"/\">WiFi Radio Receiver alpha</a></p>";
-
+    page +="<html><head><meta charset=\"utf-8\"><title>WiFi Radio</title></head>";
+    page +="<body bgcolor=\"GhostWhite\"><p><a href=\"/\">WiFi Radio Receiver alpha</a></p>";
+    page +="<form action=\"/nextstation\"method=\"POST\">";
+    page +="<input type=\"submit\"name=\"prevsta\"value=\"Prev\">";
+    page +="<input type=\"submit\"name=\"nextsta\"value=\"Next\"></form>";
     page +="Station: ";
-    page +=curstation;
+    page +=curstation; 
     page +="<form action=\"/changestation\" method=\"POST\">";
-    page +="<input type=\"text\" name=\"nextstation\" placeholder=\"0-";
+    page +="<input type=\"text\"name=\"numstation\"size=\"10\"placeholder=\"0-";
     page +=STATIONS_LIST_SIZE-1;
     page +="\"></br>";
-    page +="<input type=\"submit\" value=\"Save\"></form>";
+    page +="<input type=\"submit\"value=\"Save\"></form>";
     page +="Address: <font color=\"DimGray\">";
     page +=current_station;
-    page +="</font><form action=\"/replacestation\" method=\"POST\">";
-    page +="<input type=\"text\" name=\"newstation\" placeholder=\"New Address\"></br>";
-    page +="<input type=\"submit\" value=\"Save\"></form>";
+    page +="</font><form action=\"/replacestation\"method=\"POST\">";
+    page +="<input type=\"text\"name=\"newstation\"size=\"40\"placeholder=\"New Address\"></br>";
+    page +="<input type=\"submit\"value=\"Save\"></form>";
     page +="<p><a href=\"/stations\">Saved Stations</a></p>";
     page +="Volume: ";
     page +=audiovol;
-    page +="<form action=\"/changevolume\" method=\"POST\">";
-    page +="<input type=\"text\" name=\"newvolume\" placeholder=\"0-21\"></br>";
-    page +="<input type=\"submit\" value=\"Save\"></form>";
+    page +="<form action=\"/changevolume\"method=\"POST\">";
+    page +="<input type=\"text\" name=\"newvolume\"size=\"10\"placeholder=\"0-21\"></br>";
+    page +="<input type=\"submit\"value=\"Save\"></form>";
     page +="SSID: ";
     page +=WiFi.SSID();
     page +="<form action=\"/changeap\" method=\"POST\">";
-    page +="<input type=\"text\" name=\"newssid\" placeholder=\"New SSID\"></br>"; 
-    page +="<input type=\"text\" name=\"newpass\" placeholder=\"New Password\"></br>";
-    page +="<input type=\"submit\" value=\"Save\"></form>";
-    page +="</body>";
+    page +="<input type=\"text\"name=\"newssid\"placeholder=\"New SSID\"></br>"; 
+    page +="<input type=\"text\"name=\"newpass\"placeholder=\"New Password\"></br>";
+    page +="<input type=\"submit\"value=\"Save\"></form>";
+    page +="</body></html>";
 
     server.send(200, "text/html", page);
     }
@@ -107,11 +109,30 @@ void server_send_invalid_request(void)
 
 
 //--------------------------------------------------------------------------------------------
+void handle_nextstation(void)
+    {
+    if(server.hasArg("nextsta")) { if(++curstation >= STATIONS_LIST_SIZE) curstation=0; }
+    else if(server.hasArg("prevsta")) { if(curstation>0) curstation--; else curstation=(STATIONS_LIST_SIZE-1); }
+    else { server_send_invalid_request(); return; }
+
+    EEPROM.writeUChar(CURR_STATION_EE_ADDR, curstation);
+    EEPROM.commit();
+
+    current_station = EEPROM.readString(STREAM_0_EE_ADDR+(curstation*MAX_STREAM_ADDR_SIZE));
+
+    audio.stopSong();
+    audio.connecttohost((char*)current_station.c_str());
+
+    handle_root();
+    }
+
+
+//--------------------------------------------------------------------------------------------
 void handle_changestation(void)
     {
-    if(!server.hasArg("nextstation") || server.arg("nextstation")==NULL) { server_send_invalid_request(); return; }
+    if(!server.hasArg("numstation") || server.arg("numstation")==NULL) { server_send_invalid_request(); return; }
 
-    String str1=server.arg("nextstation");
+    String str1=server.arg("numstation");
     char strbuff[4]="";
     str1.toCharArray(strbuff,4);
     uint8_t result=atoi(strbuff);
@@ -214,7 +235,7 @@ static void wifi_audio_init(char *ssid, char *pass)
         display.setCursor(0, 0);
         display.println(WiFi.localIP());
         display.display();
-        delay(1000);  //xxx
+        delay(1000);
 
         if(EEPROM.readUChar(AUDIO_VOLUME_EE_ADDR) > MAX_AUDIO_VOL)  { EEPROM.writeUChar(AUDIO_VOLUME_EE_ADDR, MAX_AUDIO_VOL); EEPROM.commit(); }
         audiovol=EEPROM.readUChar(AUDIO_VOLUME_EE_ADDR);
@@ -222,7 +243,6 @@ static void wifi_audio_init(char *ssid, char *pass)
 
         if(EEPROM.readUChar(CURR_STATION_EE_ADDR) >= STATIONS_LIST_SIZE)  { EEPROM.writeUChar(CURR_STATION_EE_ADDR, 0); EEPROM.commit(); }
         curstation=EEPROM.readUChar(CURR_STATION_EE_ADDR);
-
 
         current_station = EEPROM.readString(STREAM_0_EE_ADDR+(curstation*MAX_STREAM_ADDR_SIZE));
         audio.connecttohost((char*)current_station.c_str());
@@ -270,9 +290,7 @@ void handle_changeap(void)
     server.send(200, "text/html", page);
 
     audio.stopSong();
-
-    delay(1000);  //xxx
-
+    delay(1000);
     wifi_audio_init((char*)EEPROM.readString(NEW_SSID_EE_ADDR).c_str(), (char*)EEPROM.readString(NEW_PASS_EE_ADDR).c_str());
     }
 
@@ -286,7 +304,6 @@ void setup(void)
 
     display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS);
     display.clearDisplay();
-    //display.cp437(true);
     display.setTextSize(1);
     display.setTextColor(SSD1306_WHITE); 
     display.setCursor(0, 0);
@@ -299,6 +316,7 @@ void setup(void)
 
     server.on("/", handle_root);
     server.on("/changestation", handle_changestation);
+    server.on("/nextstation", handle_nextstation);
     server.on("/replacestation", handle_replacestation);
     server.on("/changevolume", handle_changevolume);
     server.on("/changeap", handle_changeap);
